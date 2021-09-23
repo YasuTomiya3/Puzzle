@@ -1,0 +1,163 @@
+from PIL import Image, ImageFilter
+import numpy as np
+import csv
+import copy
+from scipy.signal import find_peaks
+import matplotlib.pyplot as plt
+import math
+
+
+
+# Functions
+#ピースの始まりを探す
+def Searchstartpx(np_img):
+    LEN=np.shape(np_img)[0]
+    #ピースの始まりを大雑把に探索
+    for ii in range(1,LEN,10):
+        for j in range(LEN):
+            px=np_img[ii,j]
+            if px>0:
+                break
+        if px>0:
+                break
+    #ピースの始まりを精密に探索
+    for i in range(ii-10,ii):
+        for j in range(LEN):
+            px=np_img[i,j]
+            if px>0:
+                break
+        if px>0:
+                break
+    return ([i,j])
+            
+#周りのピクセルの色を調べる
+def KyokushoHoukohugo(i,j):
+    C=np_img[i,j]
+    L=np_img[i-1,j]
+    R=np_img[i+1,j]
+    D=np_img[i,j-1]
+    U=np_img[i,j+1]
+    return([C,L,R,D,U])
+
+
+# 次にどこに進むか調べる
+def NextPixel(C,L,R,D,U,past_i,past_j):
+    Past=[past_i,past_j]
+    if Past==[-1,0]: #左からの場合
+        if U>0:
+            [Dlt_i,Dlt_j,Curve]=[0,1,1]
+        elif R>0:
+            [Dlt_i,Dlt_j,Curve]=[1,0,0]
+        elif D>0:
+            [Dlt_i,Dlt_j,Curve]=[0,-1,-1]
+    elif Past==[0,1]: #上からの場合
+        if R>0:
+            [Dlt_i,Dlt_j,Curve]=[1,0,1]
+        elif D>0:
+            [Dlt_i,Dlt_j,Curve]=[0,-1,0]
+        elif L>0:
+            [Dlt_i,Dlt_j,Curve]=[-1,0,-1]
+    elif Past==[1,0]: #右からの場合
+        if D>0:
+            [Dlt_i,Dlt_j,Curve]=[0,-1,1]
+        elif L>0:
+            [Dlt_i,Dlt_j,Curve]=[-1,0,0]
+        elif U>0:
+            [Dlt_i,Dlt_j,Curve]=[0,1,-1]   
+    elif Past==[0,-1]: #下からの場合
+        if L>0:
+            [Dlt_i,Dlt_j,Curve]=[-1,0,1]
+        elif U>0:
+            [Dlt_i,Dlt_j,Curve]=[0,1,0]   
+        elif R>0:
+            [Dlt_i,Dlt_j,Curve]=[1,0,-1]
+    return (Dlt_i,Dlt_j,Curve)
+
+
+def Goperation(m,CurveData_all):
+    M=m
+    G_list=[]
+    G_list_1D=[]
+    CA=copy.copy(CurveData_all)
+    L=len(CA)
+    for i in range(m):
+        CA.append(CA[i])
+    for i in range(m,L):
+        Sum=0
+        for j in range(1,M-1):
+            A=(M-j)*(CA[i-j][4]+CA[i+j][4])
+            Sum=Sum+A
+        G=M*CA[i][4]+Sum #Gの値を計算
+    #     ピクセルの座標とGの値をまとめる
+        CA_col_x,CA_col_y,CA_col_c=CA[i][0],CA[i][1],CA[i][4]
+        CA_col=[]
+        CA_col.append(CA_col_x)
+        CA_col.append(CA_col_y)
+        CA_col.append(CA_col_c)
+        CA_col.append(G)
+#         print(CA_col)
+        G_list.append(CA_col) 
+        G_list_1D.append(G*(-1))
+    return G_list,G_list_1D
+    
+    
+    #統合版
+
+#画像を読み込んでndarray型に変換
+Filename='../A_2_1.tif'
+csvFile='../A_2_1.csv'
+img = Image.open(Filename)
+np_img = np.array(img)
+LEN=np.shape(np_img)[0]
+
+Pastlist=[0,-1]
+
+Ori_ij=Searchstartpx(np_img)
+i,j=Ori_ij[0],Ori_ij[1]
+Now_ij=[0,0]
+CurveData_all=[]
+px_no=0
+while Ori_ij!=Now_ij:
+    px_no+=1
+    #def-1
+    KHlist=KyokushoHoukohugo(i,j)
+    KHlist.extend(Pastlist)
+    #def-2
+    Delta_ij=NextPixel(KHlist[0],KHlist[1],KHlist[2],KHlist[3],KHlist[4],KHlist[5],KHlist[6])
+    CurveData=[i,j,Delta_ij[0],Delta_ij[1],Delta_ij[2]]
+    #次のpixelに
+    i=i+Delta_ij[0]
+    j=j+Delta_ij[1]
+    Pastlist=[Delta_ij[0]*(-1),Delta_ij[1]*(-1)]
+    Now_ij=[i,j]
+    CurveData_all.append(CurveData)
+# とりあえずピースの形とベクトルを保存
+with open(csvFile, 'w',newline="") as f:
+    writer = csv.writer(f)
+    writer.writerows(CurveData_all)
+
+    
+m=25
+G_list,G_list_1D=Goperation(m,CurveData_all)
+peaks, _ = find_peaks(G_list_1D, height=15, distance=500)
+
+csvFile_G='../A_2_1_G_'+str(m)+'.csv'
+with open(csvFile_G, 'w',newline="") as f:
+    writer = csv.writer(f)
+    writer.writerows(G_list)
+    
+h=15
+d=500
+#ピークを検出して角の座標を取得
+peaks, _ = find_peaks(G_list_1D, height=h, distance=d)
+Corner=[]
+if len(peaks)==4:
+    for i in range(len(peaks)):
+        Corner.append(G_list[peaks[i]])
+    Corner.append(Corner[0])
+#辺の長さを計算
+for i in range(4):
+    x1,x2=Corner[i][0],Corner[i+1][0]
+    y1,y2=Corner[i][1],Corner[i+1][1]
+    Edgelength=math.sqrt((x1-x2)**2+(y1-y2)**2)
+    raw=[x1,y1,x2,y2,Edgelength]
